@@ -10,6 +10,8 @@ import com.sky.dto.DishDTO;
 import com.sky.dto.DishPageQueryDTO;
 import com.sky.entity.Dish;
 import com.sky.entity.DishFlavor;
+import com.sky.entity.Setmeal;
+import com.sky.exception.BaseException;
 import com.sky.exception.DeletionNotAllowedException;
 import com.sky.mapper.DishFlavorMapper;
 import com.sky.mapper.DishMapper;
@@ -26,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 @Service
 @Slf4j
@@ -35,6 +39,8 @@ public class DishServiceImpl implements DishService {
     private DishMapper dishMapper;
     @Autowired
     private DishFlavorMapper dishFlavorMapper;
+    @Autowired
+    private SetmealMapper setmealMapper;
 
     /**
      * 新增菜品和对应的口味
@@ -165,6 +171,45 @@ public class DishServiceImpl implements DishService {
     }
 
 
+
+    /**
+     * 菜品起售、停售；停售时同步停售关联套餐。
+     */
+    @Override
+    @Transactional
+    public void startOrStop(Integer status, List<Long> ids) {
+        if (!StatusConstant.ENABLE.equals(status) && !StatusConstant.DISABLE.equals(status)) {
+            throw new BaseException("售卖状态只能为0或1");
+        }
+        if (ids == null || ids.isEmpty()
+                || ids.stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new BaseException("请选择有效的菜品");
+        }
+
+        Set<Long> uniqueIds = new LinkedHashSet<>(ids);
+        // 先检查所有菜品，避免批量请求包含无效ID时只修改一部分。
+        for (Long id : uniqueIds) {
+            if (dishMapper.getById(id) == null) {
+                throw new BaseException("菜品不存在或已被删除");
+            }
+        }
+        for (Long id : uniqueIds) {
+            dishMapper.update(Dish.builder().id(id).status(status).build());
+        }
+
+        if (StatusConstant.DISABLE.equals(status)) {
+            List<Long> setmealIds = setmealDishMapper.getSetmealIdsByDishIds(new ArrayList<>(uniqueIds));
+            if (setmealIds != null && !setmealIds.isEmpty()) {
+                // 同一个套餐可能关联多道选中菜品，只需更新一次。
+                for (Long setmealId : new LinkedHashSet<>(setmealIds)) {
+                    setmealMapper.update(Setmeal.builder()
+                            .id(setmealId)
+                            .status(StatusConstant.DISABLE)
+                            .build());
+                }
+            }
+        }
+    }
 
     /** 条件查询菜品及其口味。 */
     @Override

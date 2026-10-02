@@ -8,3 +8,4 @@
 # Keep the setmeal regression test; it only uses the database when explicitly enabled.
 !sky-server/src/test/
 !sky-server/src/test/java/com/sky/SetmealModuleTest.java
+!sky-server/src/test/java/com/sky/DishStatusTest.java
