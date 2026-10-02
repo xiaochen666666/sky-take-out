@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.ArrayList;
 
 @Service
 @Slf4j
@@ -163,5 +164,19 @@ public class DishServiceImpl implements DishService {
         return dishMapper.list(dish);
     }
 
+
+
+    /** 条件查询菜品及其口味。 */
+    @Override
+    public List<DishVO> listWithFlavor(Dish dish) {
+        List<DishVO> result = new ArrayList<>();
+        for (Dish item : dishMapper.list(dish)) {
+            DishVO vo = new DishVO();
+            BeanUtils.copyProperties(item, vo);
+            vo.setFlavors(dishFlavorMapper.getByDishId(item.getId()));
+            result.add(vo);
+        }
+        return result;
+    }
 
 }

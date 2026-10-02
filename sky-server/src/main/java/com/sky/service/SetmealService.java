@@ -3,7 +3,9 @@ package com.sky.service;
 import com.sky.dto.SetmealDTO;
 import com.sky.dto.SetmealPageQueryDTO;
 import com.sky.result.PageResult;
+import com.sky.entity.Setmeal;
 import com.sky.vo.SetmealVO;
+import com.sky.vo.DishItemVO;
 
 import java.util.List;
 
@@ -47,5 +49,12 @@ public interface SetmealService {
      * @param ids 套餐ID列表，支持单个和批量操作
      */
     void startOrStop(Integer status, List<Long> ids);
+
+
+    /** 条件查询套餐。 */
+    List<Setmeal> list(Setmeal setmeal);
+
+    /** 查询套餐包含的菜品。 */
+    List<DishItemVO> getDishItemById(Long id);
 
 }
