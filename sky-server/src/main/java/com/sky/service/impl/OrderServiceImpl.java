@@ -21,6 +21,7 @@ import com.sky.vo.OrderPaymentVO;
 import com.sky.vo.OrderStatisticsVO;
 import com.sky.vo.OrderSubmitVO;
 import com.sky.vo.OrderVO;
+import com.sky.websocket.WebSocketServer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,6 +55,8 @@ public class OrderServiceImpl implements OrderService {
     private AddressBookMapper addressBookMapper;
     @Autowired
     private WeChatPayUtil weChatPayUtil;
+    @Autowired
+    private WebSocketServer webSocketServer;
 
     @Value("${payment.mock-enabled:false}")
     private boolean mockPaymentEnabled;
@@ -196,8 +199,12 @@ public class OrderServiceImpl implements OrderService {
                 throw new OrderBusinessException("订单状态已变化，请刷新后重试");
             }
         }
+        if (updated == 1) {
+            notifyOrder(1, order.getId(), order.getNumber());
+        }
         return OrderPaymentVO.builder().mockPayment(true).build();
     }
+
 
     /**
      * 支付成功，修改订单状态
@@ -205,20 +212,17 @@ public class OrderServiceImpl implements OrderService {
      * @param outTradeNo
      */
     public void paySuccess(String outTradeNo) {
+        Orders order = orderMapper.getByNumber(outTradeNo);
+        if (order == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+        // Payment callbacks have no login context. The conditional update also prevents duplicate alerts.
+        if (orderMapper.completeMockPayment(order.getId(), order.getUserId(), 1) == 1) {
+            notifyOrder(1, order.getId(), outTradeNo);
+        }
 
-        // 根据订单号查询订单
-        Orders ordersDB = orderMapper.getByNumber(outTradeNo);
-
-        // 根据订单id更新订单的状态、支付方式、支付状态、结账时间
-        Orders orders = Orders.builder()
-                .id(ordersDB.getId())
-                .status(Orders.TO_BE_CONFIRMED)
-                .payStatus(Orders.PAID)
-                .checkoutTime(LocalDateTime.now())
-                .build();
-
-        orderMapper.update(orders);
     }
+
 
     /**
      * 用户端订单分页查询
@@ -670,6 +674,30 @@ public class OrderServiceImpl implements OrderService {
             throw new OrderBusinessException("百度地图SN校验失败，请配置BAIDU_MAP_SK");
         }
         return result;
+    }
+
+    /**
+     * 用户催单
+     *
+     * @param id
+     */
+    public void reminder(Long id) {
+        Orders orders = getCurrentUserOrder(id);
+        if (!Orders.PAID.equals(orders.getPayStatus()) || orders.getStatus() < Orders.TO_BE_CONFIRMED
+                || orders.getStatus() > Orders.DELIVERY_IN_PROGRESS) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+
+        notifyOrder(2, id, orders.getNumber());
+    }
+
+
+    private void notifyOrder(int type, Long id, String number) {
+        Map<String, Object> message = new HashMap<>();
+        message.put("type", type);
+        message.put("orderId", id);
+        message.put("content", "\u8ba2\u5355\u53f7\uff1a" + number);
+        webSocketServer.sendToAllClient(JSON.toJSONString(message));
     }
 
 }
