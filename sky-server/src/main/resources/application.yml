@@ -65,8 +65,11 @@ sky:
     refundNotifyUrl: ${sky.wechat.refundNotifyUrl}
 
   shop:
-    address:湖北省武汉市武昌区友谊大道368号
+    address: 湖北省武汉市武昌区友谊大道368号
   baidu:
-    ak:uMhTCyYDq20FTO2kjM6oV7XvGi9Fh6iH
+    ak: uMhTCyYDq20FTO2kjM6oV7XvGi9Fh6iH
 
 
+
+    # SN verification secret; leave empty for IP verification.
+    sk: ${BAIDU_MAP_SK:}

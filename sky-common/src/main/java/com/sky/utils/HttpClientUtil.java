@@ -27,6 +27,44 @@ public class HttpClientUtil {
 
     static final  int TIMEOUT_MSEC = 5 * 1000;
 
+    /** 百度 SN 签名使用与发送请求完全相同的参数顺序和编码。 */
+    public static String doGetBaidu(String url, Map<String, String> params, String sk) {
+        try {
+            params = new java.util.LinkedHashMap<>(params);
+            if (sk != null && !sk.trim().isEmpty() && url.contains("/directionlite/")) {
+                params.put("timestamp", String.valueOf(System.currentTimeMillis() / 1000));
+            }
+            StringBuilder query = new StringBuilder();
+            for (Map.Entry<String, String> entry : params.entrySet()) {
+                if (query.length() > 0) query.append('&');
+                query.append(entry.getKey()).append('=')
+                        .append(java.net.URLEncoder.encode(entry.getValue(), "UTF-8"));
+            }
+            String requestUrl = url + "?" + query;
+            if (sk != null && !sk.trim().isEmpty()) {
+                String signingText = new URI(url).getRawPath() + "?" + query + sk.trim();
+                String encoded = java.net.URLEncoder.encode(signingText, "UTF-8");
+                String sn = org.springframework.util.DigestUtils.md5DigestAsHex(
+                        encoded.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                requestUrl += "&sn=" + sn;
+            }
+            RequestConfig config = RequestConfig.custom().setConnectTimeout(TIMEOUT_MSEC)
+                    .setSocketTimeout(TIMEOUT_MSEC).setConnectionRequestTimeout(TIMEOUT_MSEC).build();
+            try (CloseableHttpClient client = HttpClients.custom().setDefaultRequestConfig(config).build();
+                 CloseableHttpResponse response = client.execute(new HttpGet(requestUrl))) {
+                if (response.getStatusLine().getStatusCode() != 200) {
+                    throw new com.sky.exception.OrderBusinessException("地图服务请求失败，请稍后重试");
+                }
+                return EntityUtils.toString(response.getEntity(), "UTF-8");
+            }
+        } catch (com.sky.exception.OrderBusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            // 不记录含 AK、SN 的请求 URL。
+            throw new com.sky.exception.OrderBusinessException("地图服务不可用，请稍后重试");
+        }
+    }
+
     /**
      * 发送GET方式请求
      * @param url

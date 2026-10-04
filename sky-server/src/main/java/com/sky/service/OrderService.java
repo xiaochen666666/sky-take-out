@@ -42,6 +42,9 @@ public interface OrderService {
      */
     OrderVO details(Long id);
 
+    /** 商家查询订单详情，不使用用户归属校验。 */
+    OrderVO adminDetails(Long id);
+
     /**
      * 用户取消订单
      * @param id

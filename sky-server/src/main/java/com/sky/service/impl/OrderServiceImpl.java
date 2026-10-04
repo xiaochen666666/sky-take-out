@@ -61,6 +61,8 @@ public class OrderServiceImpl implements OrderService {
     private String shopAddress;
     @Value("${sky.baidu.ak}")
     private String ak;
+    @Value("${sky.baidu.sk:}")
+    private String baiduSk;
 
 
     /**
@@ -77,8 +79,11 @@ public class OrderServiceImpl implements OrderService {
             throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
         }
 
+        if (!BaseContext.getCurrentId().equals(addressBook.getUserId())) {
+            throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
+        }
         //查询用户的收获地址是否超出配送范围
-        checkOutOfRange(addressBook.getCityName() + addressBook.getDistrictName() + addressBook.getDetail());
+        checkOutOfRange(addressBook.getProvinceName() + addressBook.getCityName() + addressBook.getDistrictName() + addressBook.getDetail());
 
         Long userId = BaseContext.getCurrentId();
         ShoppingCart shoppingCart = new ShoppingCart();
@@ -262,8 +267,19 @@ public class OrderServiceImpl implements OrderService {
      */
     public OrderVO details(Long id) {
         // 根据id查询订单
-        Orders orders = getCurrentUserOrder(id);
+        return buildOrderVO(getCurrentUserOrder(id));
+    }
 
+    public OrderVO adminDetails(Long id) {
+        Orders orders = orderMapper.getById(id);
+        if (orders == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+        return buildOrderVO(orders);
+    }
+
+    private OrderVO buildOrderVO(Orders orders) {
+        Long id = orders.getId();
         // 查询该订单对应的菜品/套餐明细
         List<OrderDetail> orderDetails = orderDetailMapper.getByOrderId(id);
 
@@ -295,18 +311,7 @@ public class OrderServiceImpl implements OrderService {
 
         // 订单处于待接单状态下取消，需要进行退款
         if (ordersDB.getStatus().equals(Orders.TO_BE_CONFIRMED)) {
-            // 模拟支付直接模拟退款；真实支付需确认微信退款成功。
-            if (!mockPaymentEnabled) {
-                String refundResult = weChatPayUtil.refund(
-                    ordersDB.getNumber(), //商户订单号
-                    ordersDB.getNumber(), //商户退款单号
-                    ordersDB.getAmount(),//退款金额，单位 元
-                    ordersDB.getAmount());//原订单金额
-                JSONObject refundResponse = JSON.parseObject(refundResult);
-                if (refundResponse == null || !"SUCCESS".equals(refundResponse.getString("status"))) {
-                    throw new OrderBusinessException("退款尚未成功，请稍后重试");
-                }
-            }
+            refundIfPaid(ordersDB);
 
             //支付状态修改为 退款
             orders.setPayStatus(Orders.REFUND);
@@ -412,6 +417,18 @@ public class OrderServiceImpl implements OrderService {
 
 
 
+    private void refundIfPaid(Orders orders) throws Exception {
+        if (!Orders.PAID.equals(orders.getPayStatus()) || mockPaymentEnabled) {
+            return;
+        }
+        String response = weChatPayUtil.refund(orders.getNumber(), orders.getNumber(),
+                orders.getAmount(), orders.getAmount());
+        JSONObject result = JSON.parseObject(response);
+        if (result == null || !"SUCCESS".equals(result.getString("status"))) {
+            throw new OrderBusinessException("退款尚未成功，请稍后重试");
+        }
+    }
+
     private Orders getCurrentUserOrder(Long id) {
         Orders orders = orderMapper.getById(id);
         Long userId = BaseContext.getCurrentId();
@@ -446,6 +463,10 @@ public class OrderServiceImpl implements OrderService {
      * @param ordersConfirmDTO
      */
     public void confirm(OrdersConfirmDTO ordersConfirmDTO) {
+        Orders current = orderMapper.getById(ordersConfirmDTO.getId());
+        if (current == null || !Orders.TO_BE_CONFIRMED.equals(current.getStatus())) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
         Orders orders = Orders.builder()
                 .id(ordersConfirmDTO.getId())
                 .status(Orders.CONFIRMED)
@@ -459,6 +480,7 @@ public class OrderServiceImpl implements OrderService {
      *
      * @param ordersRejectionDTO
      */
+    @Transactional(rollbackFor = Exception.class)
     public void rejection(OrdersRejectionDTO ordersRejectionDTO) throws Exception {
         // 根据id查询订单
         Orders ordersDB = orderMapper.getById(ordersRejectionDTO.getId());
@@ -468,23 +490,16 @@ public class OrderServiceImpl implements OrderService {
             throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
         }
 
-        //支付状态
-        Integer payStatus = ordersDB.getPayStatus();
-        if (payStatus == Orders.PAID) {
-            //用户已支付，需要退款
-            String refund = weChatPayUtil.refund(
-                    ordersDB.getNumber(),
-                    ordersDB.getNumber(),
-                    new BigDecimal(0.01),
-                    new BigDecimal(0.01));
-            log.info("申请退款：{}", refund);
-        }
+        refundIfPaid(ordersDB);
 
         // 拒单需要退款，根据订单id更新订单状态、拒单原因、取消时间
         Orders orders = new Orders();
         orders.setId(ordersDB.getId());
         orders.setStatus(Orders.CANCELLED);
         orders.setRejectionReason(ordersRejectionDTO.getRejectionReason());
+        if (Orders.PAID.equals(ordersDB.getPayStatus())) {
+            orders.setPayStatus(Orders.REFUND);
+        }
         orders.setCancelTime(LocalDateTime.now());
 
         orderMapper.update(orders);
@@ -495,27 +510,27 @@ public class OrderServiceImpl implements OrderService {
      *
      * @param ordersCancelDTO
      */
+    @Transactional(rollbackFor = Exception.class)
     public void cancel(OrdersCancelDTO ordersCancelDTO) throws Exception {
         // 根据id查询订单
         Orders ordersDB = orderMapper.getById(ordersCancelDTO.getId());
 
-        //支付状态
-        Integer payStatus = ordersDB.getPayStatus();
-        if (payStatus == 1) {
-            //用户已支付，需要退款
-            String refund = weChatPayUtil.refund(
-                    ordersDB.getNumber(),
-                    ordersDB.getNumber(),
-                    new BigDecimal(0.01),
-                    new BigDecimal(0.01));
-            log.info("申请退款：{}", refund);
+        if (ordersDB == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
         }
+        if (Orders.CANCELLED.equals(ordersDB.getStatus()) || Orders.COMPLETED.equals(ordersDB.getStatus())) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+        refundIfPaid(ordersDB);
 
         // 管理端取消订单需要退款，根据订单id更新订单状态、取消原因、取消时间
         Orders orders = new Orders();
         orders.setId(ordersCancelDTO.getId());
         orders.setStatus(Orders.CANCELLED);
         orders.setCancelReason(ordersCancelDTO.getCancelReason());
+        if (Orders.PAID.equals(ordersDB.getPayStatus())) {
+            orders.setPayStatus(Orders.REFUND);
+        }
         orders.setCancelTime(LocalDateTime.now());
         orderMapper.update(orders);
     }
@@ -570,15 +585,15 @@ public class OrderServiceImpl implements OrderService {
      * @param address
      */
     private void checkOutOfRange(String address) {
-        Map map = new HashMap();
+        Map<String, String> map = new java.util.LinkedHashMap<>();
         map.put("address",shopAddress);
         map.put("output","json");
         map.put("ak",ak);
 
         //获取店铺的经纬度坐标
-        String shopCoordinate = HttpClientUtil.doGet("https://api.map.baidu.com/geocoding/v3", map);
+        String shopCoordinate = requestMap("https://api.map.baidu.com/geocoding/v3", map);
 
-        JSONObject jsonObject = JSON.parseObject(shopCoordinate);
+        JSONObject jsonObject = parseMapResponse(shopCoordinate);
         if(!jsonObject.getString("status").equals("0")){
             throw new OrderBusinessException("店铺地址解析失败");
         }
@@ -592,9 +607,9 @@ public class OrderServiceImpl implements OrderService {
 
         map.put("address",address);
         //获取用户收货地址的经纬度坐标
-        String userCoordinate = HttpClientUtil.doGet("https://api.map.baidu.com/geocoding/v3", map);
+        String userCoordinate = requestMap("https://api.map.baidu.com/geocoding/v3", map);
 
-        jsonObject = JSON.parseObject(userCoordinate);
+        jsonObject = parseMapResponse(userCoordinate);
         if(!jsonObject.getString("status").equals("0")){
             throw new OrderBusinessException("收货地址解析失败");
         }
@@ -606,14 +621,15 @@ public class OrderServiceImpl implements OrderService {
         //用户收货地址经纬度坐标
         String userLngLat = lat + "," + lng;
 
+        map.remove("address");
         map.put("origin",shopLngLat);
         map.put("destination",userLngLat);
         map.put("steps_info","0");
 
         //路线规划
-        String json = HttpClientUtil.doGet("https://api.map.baidu.com/directionlite/v1/driving", map);
+        String json = requestMap("https://api.map.baidu.com/directionlite/v1/driving", map);
 
-        jsonObject = JSON.parseObject(json);
+        jsonObject = parseMapResponse(json);
         if(!jsonObject.getString("status").equals("0")){
             throw new OrderBusinessException("配送路线规划失败");
         }
@@ -621,7 +637,13 @@ public class OrderServiceImpl implements OrderService {
         //数据解析
         JSONObject result = jsonObject.getJSONObject("result");
         JSONArray jsonArray = (JSONArray) result.get("routes");
-        Integer distance = (Integer) ((JSONObject) jsonArray.get(0)).get("distance");
+        if (jsonArray == null || jsonArray.isEmpty()) {
+            throw new OrderBusinessException("未找到配送路线");
+        }
+        Integer distance = jsonArray.getJSONObject(0).getInteger("distance");
+        if (distance == null || distance < 0) {
+            throw new OrderBusinessException("配送距离数据无效");
+        }
 
         if(distance > 5000){
             //配送距离超过5000米
@@ -629,5 +651,25 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+
+    String requestMap(String url, Map<String, String> params) {
+        return HttpClientUtil.doGetBaidu(url, params, baiduSk);
+    }
+
+    private JSONObject parseMapResponse(String response) {
+        JSONObject result;
+        try {
+            result = JSON.parseObject(response);
+        } catch (Exception ex) {
+            throw new OrderBusinessException("地图服务响应无效");
+        }
+        if (result == null || result.getInteger("status") == null) {
+            throw new OrderBusinessException("地图服务响应无效");
+        }
+        if (result.getInteger("status") == 211) {
+            throw new OrderBusinessException("百度地图SN校验失败，请配置BAIDU_MAP_SK");
+        }
+        return result;
+    }
 
 }
