@@ -13,14 +13,7 @@
 
 本仓库包含 Java 后端。管理端 Vue 页面和微信小程序需单独准备，不包含在本仓库中。
 
-## 📚 目录
-
-> 点击标题展开对应内容。
-
-<details>
-<summary><strong>功能概览</strong></summary>
-
-### 功能概览
+## 功能概览
 
 | 模块 | 源码覆盖的功能 |
 | --- | --- |
@@ -33,12 +26,7 @@
 
 功能列表按当前源码整理；完整运行需要数据库、Redis 及相应第三方服务配置。
 
-</details>
-
-<details>
-<summary><strong>技术栈</strong></summary>
-
-### 技术栈
+## 技术栈
 
 | 技术 | 用途 |
 | --- | --- |
@@ -52,12 +40,7 @@
 | Apache POI 3.16 | Excel 报表处理 |
 | 阿里云 OSS / 微信支付 | 图片存储与支付接入 |
 
-</details>
-
-<details>
-<summary><strong>项目结构</strong></summary>
-
-### 项目结构
+## 项目结构
 
 ```text
 sky-take-out/
@@ -88,12 +71,7 @@ sky-take-out/
 
 典型调用链：`Controller → Service → Mapper → MySQL`。DTO 用于接收或传递参数，Entity 对应业务实体，VO 用于组织响应数据。
 
-</details>
-
-<details>
-<summary><strong>本地启动</strong></summary>
-
-### 本地启动
+## 本地启动
 
 ### 1. 准备环境
 
@@ -151,12 +129,7 @@ mvn -pl sky-server spring-boot:run
 
 前端联调时需要单独设置请求地址及代理。文档页面可打开仅表示文档服务可访问，业务仍需结合登录状态和数据库数据验证。
 
-</details>
-
-<details>
-<summary><strong>模拟支付说明</strong></summary>
-
-### 模拟支付说明
+## 模拟支付说明
 
 订单业务提供 `payment.mock-enabled` 开关，可在本地开发配置中设置：
 
@@ -167,12 +140,7 @@ payment:
 
 模拟支付用于开发流程验证，不产生真实微信扣款，前端也需要识别模拟支付返回结果。真实支付需要独立配置商户信息、证书和回调地址；不能把模拟流程通过视为真实支付接入完成。
 
-</details>
-
-<details>
-<summary><strong>学习与维护</strong></summary>
-
-### 学习与维护
+## 学习与维护
 
 建议从员工或分类管理入手，沿 Controller、Service、Mapper 阅读，再学习 JWT 用户上下文、AOP 自动填充、Redis 缓存、订单事务、WebSocket 和报表导出。
 
@@ -182,5 +150,3 @@ payment:
 - 执行测试前检查其 Redis、网络和本机文件依赖；跳过测试的构建不能视为测试通过。
 
 更详细的源码导航、验证方法和 AI 协作约定见 [AGENTS.md](AGENTS.md)。
-
-</details>
